@@ -1,0 +1,48 @@
+<html>
+<head>
+</head>
+<body></body>
+<script src="http://localhost:8087/socket.io/socket.io.js"></script>
+<script src="remref.js"></script>
+<script>
+
+var endp1 = new RemoteRequest('c0xhexa', function() {
+    console.log("endp1 is ready, id: " + endp1.id);
+    if(endp2.ready) {
+        runTest();
+    } 
+    endp1.ready = true;
+});
+
+var endp2 = new RemoteRequest('c0xhaxa', function() {
+    console.log("endp2 is ready, id: " + endp2.id);
+    if(endp1.ready) {
+        runTest();
+    }
+    endp2.ready = true;
+});
+
+function runTest() {
+    console.log("run tests");
+
+    endp1.onrequest = function(args, cb) {
+        var reply = { "invocation": "done" };
+        console.log("endp1 got request: ", args);
+        console.log("endp1 send reply: ", reply);
+        cb(reply);
+    };
+
+    console.log("endp1 request handler added: ", endp1);
+
+
+    console.log("endp2 send request to: " + endp1.id);
+    endp2.request(endp1.id, { message: { method: 'invoke', params: { foo: "hello", bar: 5 } } }, function(reply) {
+        console.log("endp2 got reply: ", reply);
+    });
+
+}
+
+
+</script>
+
+</html>
