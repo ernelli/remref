@@ -1,4 +1,15 @@
-var io = require("socket.io")(8087);
+var port = 8087;
+
+var http = require('http');
+var url = require('url');
+var querystring = require('querystring');
+
+var server = http.createServer(requestHandler);
+  
+// attach socket IO to webserver.
+var io = require("socket.io")(server);
+
+server.listen(port); 
 
 // server is a simple request reply router
 
@@ -28,7 +39,12 @@ io.on('connection', function(socket) {
         var client = params.client;
 
         if(clients[client]) {
-            requests[txid] = { txid: params.txid, socket: socket, timestamp: Date.now() };
+
+            requests[txid] = function(reply) {
+                //{ txid: params.txid, socket: socket, timestamp: Date.now() };
+                socket.emit('reply', { txid: params.txid, message: reply.message });                
+            }
+
             clients[client].emit('request', { txid: txid, message: params.message});
             txid++;
         } else {
@@ -36,14 +52,57 @@ io.on('connection', function(socket) {
         }
     });
     
-    // route reply back to initiating client
+    // route reply back to initiating client through request callback
     socket.on('reply', function(params) {
         var request = requests[params.txid];
         if(request) {
-            request.socket.emit('reply', { txid: request.txid, message: params.message });
             delete requests[params.txid];
+            request(params);
+            //request.socket.emit('reply', { txid: request.txid, message: params.message });
         }
     });
               
 });
 
+function requestHandler(req, res) {
+
+    req.entity_body = "";
+    req.on('data', function(chunk) {
+        req.entity_body += chunk;
+    });
+
+    req.on('end', function() {
+        req.ended = true;
+        
+        // http://xxxx.dd/request
+        var urlparts = url.parse(req.url);
+        
+        if(urlparts.pathname === "/request") {
+            var params;
+            if(req.method === "POST" && req.headers['content-type'] === "application/json") {
+                params = JSON.parse(req.entity_body);
+            } else if(req.method === "GET") {
+                var query = querystring.parse(urlparts.query);
+                params = JSON.parse(query.params);
+            }
+            
+            var client = params.client;
+            
+            if(clients[client]) {
+                
+                requests[txid] = function(reply) {
+                    //res.headers['content-type'] = "application/json";
+                    res.writeHead(200, { 'content-type':"application/json" });
+                    res.end(JSON.stringify(reply.message));
+                }
+                
+                clients[client].emit('request', { txid: txid, message: params.message});
+                txid++;
+            } else {
+                console.log("bad request: ", params);
+                res.writeHead(400);
+                res.end("Invalid target client: " + params.client);
+            }
+        }
+    });    
+}
