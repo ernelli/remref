@@ -80,12 +80,32 @@ function requestHandler(req, res) {
         if(urlparts.pathname === "/request") {
             var params;
 
+            var headers = { "access-control-allow-origin": "*",
+                            "access-control-allow-methods": "GET, POST, OPTIONS"};
+            
+            if(req.headers['access-control-request-headers']) {
+                headers["access-control-allow-headers"] = req.headers['access-control-request-headers'];
+            }
+            
+
             try {
                 if(req.method === "POST" && req.headers['content-type'] === "application/json") {
                     params = JSON.parse(req.entity_body);
                 } else if(req.method === "GET") {
                     var query = querystring.parse(urlparts.query);
                     params = JSON.parse(query.params);
+                } else if(req.method === "OPTIONS") {
+                    res.writeHead(200, headers);
+                    res.end();
+                    return;
+                    //,
+                    //"access-control-allow-methods": "POST, GET, OPTIONS"
+
+                } else {
+                    console.log("invalid request, method: " + req.method);
+                    res.writeHead(400);
+                    res.end("Invalid request");
+                    return;                    
                 }
             } catch(e) {
                 res.writeHead(400);
@@ -98,8 +118,8 @@ function requestHandler(req, res) {
             if(clients[client]) {
                 
                 requests[txid] = function(reply) {
-                    //res.headers['content-type'] = "application/json";
-                    res.writeHead(200, { 'content-type':"application/json" });
+                    headers['content-type'] = "application/json";
+                    res.writeHead(200, headers);
                     res.end(JSON.stringify(reply.message));
                 }
                 

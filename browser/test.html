@@ -47,6 +47,15 @@ function runTest() {
         cb(reply);
     };
 
+    endp2.onrequest = function(args, cb) {
+        var reply = { "slow-invocation": "done" };
+        console.log("endp2 got request: ", args);
+        setTimeout(function() {
+            console.log("endp2 send reply: ", reply);
+            cb(reply);
+        }, 1000);
+    };
+
     console.log("endp1 request handler added: ", endp1);
 
 

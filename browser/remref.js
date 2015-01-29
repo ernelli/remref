@@ -36,11 +36,30 @@ function RemoteRequest(id, options) {
     }.bind(this));
 
     this.request = function(client, message, cb) {
-        var _txid = txid++;
-        requests[_txid] = function (reply) {
+        if(cb) {
+            var _txid = txid++;
+            requests[_txid] = function (reply) {
                 cb(reply);
-        };
-        socket.emit('request', { client: client, txid: _txid, message: message });
+            };
+            socket.emit('request', { client: client, txid: _txid, message: message });
+        } else {
+            var res = false, xhr = new XMLHttpRequest();
+
+            var url = (options.server || serverURL) + "/request";
+
+            xhr.open("POST", url, false);
+            xhr.setRequestHeader("content-type", "application/json");
+            xhr.send(JSON.stringify({ client: client, message: message }));
+
+            if (xhr.readyState === xhr.DONE && (xhr.status === 200 || xhr.status === 304)) {
+                try {
+                    res = JSON.parse(xhr.responseText);
+                } catch (e) {
+                    console.log("Invalid JSON message: [" + xhr.responseText + "], error:" + e);
+                }
+            }
+            return res;
+        }
     };
     
     this.on = function(event, cb) {

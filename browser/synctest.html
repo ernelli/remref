@@ -1,0 +1,33 @@
+<html>
+<head>
+</head>
+<body></body>
+<script src="http://localhost:8087/socket.io/socket.io.js"></script>
+<script src="remref.js"></script>
+<script>
+
+var options = { server: "http://localhost:8087" };
+
+var endp3 = new RemoteRequest('sync', options);
+
+if(!endp3.ready) {
+    endp3.on('ready', function() {
+        runTest();
+    });
+}
+
+function runTest() {
+    var res;
+    console.log("run sync tests");
+
+    res = endp3.request('c0xhexa', { data: "message to endp1" });
+    console.log("response from endp1: ", res);
+
+    res = endp3.request('c0xhaxa', { data: "message to endp2" });
+    console.log("response from endp2: ", res);
+}
+
+
+</script>
+
+</html>
