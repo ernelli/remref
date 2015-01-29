@@ -1,11 +1,11 @@
-var serverURL = "http://localhost:8087";
+var serverURL = "http://localhost:8080";
 
-function RemoteRequest(id, readycb) {
+function RemoteRequest(id, options) {
     var txid = 1;
     var clientid;
     var requests = {};
 
-    var socket = io(serverURL, { multiplex: false });
+    var socket = io(options.server || serverURL, { multiplex: false });
 
     this._stubs = {};
 
@@ -51,13 +51,12 @@ function RemoteRequest(id, readycb) {
         console.log("got init reply on socket: ", socket);
         this.id = clientid = reply.clientid;
         console.log("client id is: " + clientid);
-        if(readycb) {
+        this.ready = true;
+        if(this.readycb) {
             console.log("invoke readycb");
-            readycb();
-            readycb = false;
-        } else {
-            console.log("readycb is undefined");
-        }
+            this.readycb();
+            delete this.readycb;
+        } 
     }.bind(this));
     socket.emit('init', { clientid: id });
 }

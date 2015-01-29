@@ -6,21 +6,36 @@
 <script src="remref.js"></script>
 <script>
 
-var endp1 = new RemoteRequest('c0xhexa', function() {
-    console.log("endp1 is ready, id: " + endp1.id);
-    if(endp2.ready) {
-        runTest();
-    } 
-    endp1.ready = true;
-});
+var options = { server: "http://localhost:8087" };
 
-var endp2 = new RemoteRequest('c0xhaxa', function() {
-    console.log("endp2 is ready, id: " + endp2.id);
-    if(endp1.ready) {
-        runTest();
-    }
-    endp2.ready = true;
-});
+var endp1 = new RemoteRequest('c0xhexa', options);
+var endp2 = new RemoteRequest('c0xhaxa', options);
+
+
+
+if(!endp1.ready) {
+    endp1.on('ready', function() {
+        console.log("endp1 is ready, id: " + endp1.id);
+        if(endp2.ready) {
+            runTest();
+        } 
+    });
+} 
+
+if(!endp2.ready) {
+    endp2.on('ready', function() {
+        console.log("endp1 is ready, id: " + endp1.id);
+        if(endp1.ready) {
+            runTest();
+        } 
+    });
+
+}
+
+if(endp1.ready && endp2.ready) {
+    console.log("run tests");
+    runTest();
+}
 
 function runTest() {
     console.log("run tests");

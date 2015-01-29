@@ -79,13 +79,20 @@ function requestHandler(req, res) {
         
         if(urlparts.pathname === "/request") {
             var params;
-            if(req.method === "POST" && req.headers['content-type'] === "application/json") {
-                params = JSON.parse(req.entity_body);
-            } else if(req.method === "GET") {
-                var query = querystring.parse(urlparts.query);
-                params = JSON.parse(query.params);
+
+            try {
+                if(req.method === "POST" && req.headers['content-type'] === "application/json") {
+                    params = JSON.parse(req.entity_body);
+                } else if(req.method === "GET") {
+                    var query = querystring.parse(urlparts.query);
+                    params = JSON.parse(query.params);
+                }
+            } catch(e) {
+                res.writeHead(400);
+                res.end("Invalid request, malformed JSON data");
+                return;
             }
-            
+
             var client = params.client;
             
             if(clients[client]) {
