@@ -35,17 +35,14 @@ io.on('connection', function(socket) {
 
     // route request to client socket identified by params.client
     socket.on('request', function(params) {
-        //console.log("request: ");
-        var client = params.client;
-
-        if(clients[client]) {
+        if(params && params.client && clients[params.client]) {
 
             requests[txid] = function(reply) {
                 //{ txid: params.txid, socket: socket, timestamp: Date.now() };
                 socket.emit('reply', { txid: params.txid, message: reply.message });                
             }
 
-            clients[client].emit('request', { txid: txid, message: params.message});
+            clients[params.client].emit('request', { txid: txid, message: params.message});
             txid++;
         } else {
             socket.emit('reply', { txid: params.txid, error: "Invalid target client: " + params.client} );
@@ -103,13 +100,19 @@ function requestHandler(req, res) {
 
                 } else {
                     console.log("invalid request, method: " + req.method);
-                    res.writeHead(400);
+                    res.writeHead(405);
                     res.end("Invalid request");
                     return;                    
                 }
             } catch(e) {
                 res.writeHead(400);
                 res.end("Invalid request, malformed JSON data");
+                return;
+            }
+
+            if(!params) {
+                res.writeHead(422);
+                res.end("Invalid request, parameters not sent");
                 return;
             }
 
@@ -127,7 +130,7 @@ function requestHandler(req, res) {
                 txid++;
             } else {
                 console.log("bad request: ", params);
-                res.writeHead(400);
+                res.writeHead(422);
                 res.end("Invalid target client: " + params.client);
             }
         }
