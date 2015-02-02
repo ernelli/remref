@@ -101,19 +101,27 @@ function RemoteReflection(clientid, remoteid, options) {
     // id -> object
     var id=1, local = {};
 
-    function invoke(item, property, params) {
-        var e = local[item];
-        if(e) {
-            console.log("apply: " + property + ", on object: ", e);
-            return e[property].apply(e, params);
+    function invoke(id, property, params) {
+        var o = local[id].o;
+        if(o) {
+            console.log("apply: " + property + ", on object: ", o);
+            return o[property].apply(o, params);
         }
     }
 
-    function get(item, property) {
-        var e = local[item];
-        if(e) {
-            console.log("get: " + property + ", from object: ", e);
-            return e[property];
+    function get(id, property) {
+        var o = local[id].o;
+        if(o) {
+            console.log("get: " + property + ", from object: ", o);
+            return o[property];
+        }
+    }
+
+    function set(id, property, value) {
+        var o = local[id].o;
+        if(o) {
+            console.log("set: " + property + ", to object: ", o);
+            o[property] = value;
         }
     }
 
@@ -125,13 +133,13 @@ function RemoteReflection(clientid, remoteid, options) {
         } else if(Array.isArray(item) ) {
             o = window;
             for(i = 0; i < item.length; i++) {
-                o = o.item[i];
+                o = o[item[i]];
             }
         }
 
         console.log("reflect item: ", item, ", is object: ", o);
 
-        local[id] = o;
+        local[id] = { o: o, options: options };
 
         res = { id: id, map: {} };
 
@@ -147,6 +155,10 @@ function RemoteReflection(clientid, remoteid, options) {
         return res;
     }
 
+    function dispose(id) {
+        delete local[id];
+    }
+
     rpc.onrequest = function(message, cb) {
         var method = message.method;
         var params = message.params;
@@ -155,14 +167,21 @@ function RemoteReflection(clientid, remoteid, options) {
         console.log("reflect rpc, method: ", method);
 
         if(method === "invoke") {
-            var res = invoke(params.item, params.property, params.params);
+            var res = invoke(params.id, params.property, params.params);
             cb(res);
         } else if(method === "get") {
-            var res = get(params.item, params.property);
+            var res = get(params.id, params.property);
+            cb(res);
+        } else if(method === "set") {
+            set(params.id, params.property, params.value);
             cb(res);
         } else if(method === "reflect") {
             console.log("got reflect request: ", message);
             var res = reflect(params.item, params.options);
+            cb(res);
+        } else if(method === "dispose") {
+            console.log("got dispose request: ", message);
+            var res = dispose(params.id);
             cb(res);
         } else {
             cb( { error: "invalid method: " + message.method } );
@@ -179,18 +198,25 @@ function RemoteReflection(clientid, remoteid, options) {
         for(p in map) {
             if(map[p] === 1) { // reflected function
                 //console.log("replace stub with rpc call: to ", res.id, ", method: ", p);
-                map[p] = (function(item, prop) {
+                map[p] = (function(id, prop) {
                     return function() {
-                        return rpc.request(remoteid, { method: 'invoke', params: { item: item, property: prop, params: toArray(arguments) }});
+                        return rpc.request(remoteid, { method: 'invoke', params: { id: id, property: prop, params: toArray(arguments) }});
                     };
                 })(res.id, p);
             } else if(map[p] === 2) { // reflected property
                 delete map[p];
-                Object.defineProperty(map, p, { get: (function(item, prop) { 
-                    return function() { 
-                        return rpc.request(remoteid, { method: 'get', params: { item: item, property: prop }});
-                    };
-                })(res.id, p) });
+                Object.defineProperty(map, p, { 
+                    get: (function(id, prop) { 
+                        return function() { 
+                            return rpc.request(remoteid, { method: 'get', params: { id: id, property: prop }});
+                        };
+                    })(res.id, p),
+                    set: (function(id, prop) { 
+                        return function(value) { 
+                            return rpc.request(remoteid, { method: 'set', params: { id: id, property: prop, value: value }});
+                        };
+                    })(res.id, p)
+                });
             }
         }
         return map;
