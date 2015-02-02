@@ -123,7 +123,7 @@ function requestHandler(req, res) {
                 requests[txid] = function(reply) {
                     headers['content-type'] = "application/json";
                     res.writeHead(200, headers);
-                    res.end(JSON.stringify(reply.message));
+                    res.end(JSON.stringify(reply));
                 }
                 
                 clients[client].emit('request', { txid: txid, message: params.message});

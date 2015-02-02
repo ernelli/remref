@@ -28,15 +28,19 @@ function RemoteRequest(clientid, options) {
     });
     
     socket.on('request', function(request) {
-        var _txid = request.txid;
         if(this.onrequest) {
             console.log(clientid + ": process request: ", request);
-            this.onrequest(request.message, function(reply) {
-                console.log(clientid + ": request processed, send reply: ", reply);
-                socket.emit('reply', { txid: _txid, message: reply });
-            });
+            try {
+                this.onrequest(request.message, function(reply) {
+                    console.log(clientid + ": request processed, send reply: ", reply);
+                    socket.emit('reply', { txid: request.txid, message: reply });
+                });
+            } catch(e) {
+                console.log(clientid + ": request handler failed: ", e);
+                socket.emit('reply', { txid: request.txid, error: "Request failed: " + e });
+            }
         } else {
-            console.log(clientid + ": request handler not present on: ", this);
+            console.log(clientid + ": request handler not present");
             socket.emit('reply', { txid: request.txid });
         }
     }.bind(this));
@@ -64,7 +68,12 @@ function RemoteRequest(clientid, options) {
                     console.log("Invalid JSON message: [" + xhr.responseText + "], error:" + e);
                 }
             }
-            return res;
+
+            if(res.error) {
+                throw(res.error);
+            } else {
+                return res.message;
+            }
         }
     };
     
@@ -97,6 +106,14 @@ function RemoteReflection(clientid, remoteid, options) {
         if(e) {
             console.log("apply: " + property + ", on object: ", e);
             return e[property].apply(e, params);
+        }
+    }
+
+    function get(item, property) {
+        var e = local[item];
+        if(e) {
+            console.log("get: " + property + ", from object: ", e);
+            return e[property];
         }
     }
 
@@ -138,7 +155,10 @@ function RemoteReflection(clientid, remoteid, options) {
         console.log("reflect rpc, method: ", method);
 
         if(method === "invoke") {
-            var res = invoke(params.item, params.propery, params.params);
+            var res = invoke(params.item, params.property, params.params);
+            cb(res);
+        } else if(method === "get") {
+            var res = get(params.item, params.property);
             cb(res);
         } else if(method === "reflect") {
             console.log("got reflect request: ", message);
@@ -161,9 +181,16 @@ function RemoteReflection(clientid, remoteid, options) {
                 //console.log("replace stub with rpc call: to ", res.id, ", method: ", p);
                 map[p] = (function(item, prop) {
                     return function() {
-                        rpc.request(remoteid, { method: 'invoke', params: { item: item, property: prop, params: toArray(arguments) }});
-                    }
+                        return rpc.request(remoteid, { method: 'invoke', params: { item: item, property: prop, params: toArray(arguments) }});
+                    };
                 })(res.id, p);
+            } else if(map[p] === 2) { // reflected property
+                delete map[p];
+                Object.defineProperty(map, p, { get: (function(item, prop) { 
+                    return function() { 
+                        return rpc.request(remoteid, { method: 'get', params: { item: item, property: prop }});
+                    };
+                })(res.id, p) });
             }
         }
         return map;
