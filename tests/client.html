@@ -1,27 +1,56 @@
 <html>
 <head>
+<script src="../browser/remref.js"></script>
 </head>
 
-<body></body>
-<script src="http://localhost:8087/socket.io/socket.io.js"></script>
-<script src="../browser/remref.js"></script>
+<body>
+
+
 <script>
 
-var options = { server: "http://localhost:8087" };
+function runTest() {
 
-var rpc = new RemoteReflection('client', 'target', options);
+    var options = { server: document.location.origin + ":8087" };
 
-console.log("client initialised");
 
-var rcon = rpc.reflect('console');
-console.log("reflected target console: ", rcon);
-console.log("invoke log");
-rcon.log("hello remote logging!");
-console.log("log invoked");
+    
+    var rpc = new RemoteReflection('client', 'target', options);
+    window.rpc = rpc;
 
+    console.log("client initialised");
+    
+    var rcon = rpc.reflect('console');
+    window.rcon = rcon;
+
+    console.log("reflected target console: ", rcon);
+    console.log("invoke log");
+    rcon.log("hello remote logging!");
+    console.log("log invoked");
+}
 
 
 
 </script>
 
+
+
+
+
+
+<script>
+console.log("loading socket.io");
+
+(function () {
+    var script = document.createElement("script");
+    script.onload = function () {
+        console.log("socket.io loaded");        
+        runTest();
+    };
+    script.src = document.location.origin + ":8087/socket.io/socket.io.js";
+    document.getElementsByTagName('head')[0].appendChild(script);
+})();
+
+</script>
+
+</body>
 </html>

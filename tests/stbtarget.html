@@ -1,0 +1,26 @@
+<html>
+<head>
+</head>
+
+<body>
+<embed id="embed1" type="application/x-motorola-toi" hidden="true"></embed>
+<script src="http://192.168.126.20:8087/socket.io/socket.io.js"></script>
+<script src="../browser/remref.js"></script>
+<script>
+
+var options = { server: document.location.origin + ":8087" };
+
+var rpc = new RemoteReflection('target', 'client', options);
+
+console.log("target initialised");
+
+
+
+</script>
+
+<div>
+<video style="left: 0px; top: 0px; width: 1024px; height: 576px" id='mainvideoplane' index=0 src='toi://'></video>
+</div>
+
+</body>
+</html>

@@ -36,7 +36,10 @@ function RemoteRequest(clientid, options) {
                     socket.emit('reply', { txid: request.txid, message: reply });
                 });
             } catch(e) {
-                console.log(clientid + ": request handler failed: ", e);
+                console.log(clientid + ": request handler failed: " + e);
+                for(p in e) {
+                    console.log(p + " = " + e[p]);
+                }
                 socket.emit('reply', { txid: request.txid, error: "Request failed: " + e });
             }
         } else {
@@ -101,11 +104,67 @@ function RemoteReflection(clientid, remoteid, options) {
     // id -> object
     var id=1, local = {};
 
-    function invoke(id, property, params) {
-        var o = local[id].o;
-        if(o) {
-            console.log("apply: " + property + ", on object: ", o);
-            return o[property].apply(o, params);
+    function reflect(item, options) {
+        var i, o, p, res;
+
+        if(typeof item == "string") {
+            o = window[item];
+        } else if(Array.isArray(item) ) {
+            o = window;
+            for(i = 0; i < item.length; i++) {
+                o = o[item[i]];
+            }
+        } else if(typeof item === "object"){
+            o = item;
+        } else if(typeof item === "function"){
+            o = item;
+        } else {
+            console.log("unhandled item type: " + typeof item);
+        }
+
+        console.log("reflect item: " + item + ", is object: " +  o);
+        if(options) {
+            console.log("options: " + options);
+            for(var P in options) {
+                console.log("prop: " + P + " = " + options[P]);
+            }
+        } else {
+            console.log("options not specified");
+        }
+
+        local[id] = { o: o }; //, options: options };
+
+        res = { id: id, map: {} };
+
+        id++;
+
+        for(p in o) {
+            if(typeof o[p] === "function") {
+                res.map[p] = 1;
+            } else {
+                if(options && options.serialize &&  (typeof o[p] === "string" || typeof o[p] === "number") ) {
+                    res.map[p] = o[p];
+                } else {
+                    res.map[p] = 2;
+                }
+            }
+        }
+
+        return res;
+    }
+
+    function invoke(id, property, _reflect, serialize, params) {
+        var rs, l = local[id];
+        if(l.o) {
+            console.log("apply: [" + property + "], on object: " + l.o);
+
+            res =  l.o[property].apply(l.o, params);
+
+            if(_reflect) { 
+                console.log("reflect result: " + res);
+                res = reflect(res, serialize && { serialize: true });
+            }
+            return res;
         }
     }
 
@@ -125,36 +184,6 @@ function RemoteReflection(clientid, remoteid, options) {
         }
     }
 
-    function reflect(item, options) {
-        var i, o, p, res;
-
-        if(typeof item == "string") {
-            o = window[item];
-        } else if(Array.isArray(item) ) {
-            o = window;
-            for(i = 0; i < item.length; i++) {
-                o = o[item[i]];
-            }
-        }
-
-        console.log("reflect item: ", item, ", is object: ", o);
-
-        local[id] = { o: o, options: options };
-
-        res = { id: id, map: {} };
-
-        for(p in o) {
-            console.log("map property: " + p);
-            if(typeof o[p] === "function") {
-                res.map[p] = 1;
-            } else {
-                res.map[p] = 2;
-            }
-        }
-
-        return res;
-    }
-
     function dispose(id) {
         delete local[id];
     }
@@ -167,7 +196,7 @@ function RemoteReflection(clientid, remoteid, options) {
         console.log("reflect rpc, method: ", method);
 
         if(method === "invoke") {
-            var res = invoke(params.id, params.property, params.params);
+            var res = invoke(params.id, params.property, params.reflect, params.serialize, params.params);
             cb(res);
         } else if(method === "get") {
             var res = get(params.id, params.property);
@@ -189,122 +218,59 @@ function RemoteReflection(clientid, remoteid, options) {
     }
 
     this.reflect = function(item, options) {
-        var p, map, res = rpc.request(remoteid, { method: "reflect", params: { item: item, options: options  } });
+        var p, res = rpc.request(remoteid, { method: "reflect", params: { item: item, options: options  } });
 
-        map = res.map;
+        console.log("got reflect response: ", res);
 
-        console.log("got reflect map: ", map);
-
-        for(p in map) {
-            if(map[p] === 1) { // reflected function
-                //console.log("replace stub with rpc call: to ", res.id, ", method: ", p);
-                map[p] = (function(id, prop) {
-                    return function() {
-                        return rpc.request(remoteid, { method: 'invoke', params: { id: id, property: prop, params: toArray(arguments) }});
-                    };
-                })(res.id, p);
-            } else if(map[p] === 2) { // reflected property
-                delete map[p];
-                Object.defineProperty(map, p, { 
-                    get: (function(id, prop) { 
-                        return function() { 
-                            return rpc.request(remoteid, { method: 'get', params: { id: id, property: prop }});
-                        };
-                    })(res.id, p),
-                    set: (function(id, prop) { 
-                        return function(value) { 
-                            return rpc.request(remoteid, { method: 'set', params: { id: id, property: prop, value: value }});
-                        };
-                    })(res.id, p)
-                });
-            }
-        }
-        return map;
-    }
-
-}
-
-
-
-
-
-/*
-
-
-
-{
-    invoke: function (o, m, args) {
-        var params = [o,m].concat(toArray(args));
-        console.log("params: " + params);
-    }
-
-}
-
-
-var local = {
-    foo: function() {
-        return rpc.invoke(1, 0, arguments);
-    },
-    bar: function() {
-        return rpc.invoke(1, 1, arguments);
-    },
-    baz: function() {
-        return rpc.invoke(1, 2, arguments);
-    }
-};
-
-
-var remote = {
-    foo: function() {
-        console.log("foo called");
-        return false;
-    },
-    bar: function(a) {
-        console.log("bar called with: " + a);
-        return true;
-    },
-    baz: function(a,b) {
-        console.log("a + b = " + a + b);
-        return a + b;
-    }
-
-};
-
-
-
-
-function reflectObject(obj) {
-    var p, mirror;
-
-    var mirror = {};
-
-    for(p in obj) {
-        if(typeof obj[p] === "function") {
+        (function _reflect(id, map, options) {
             
-        }
+            for(p in map) {
+                if(map[p] === 1) { // reflected function
+                    //console.log("replace stub with rpc call: to ", res.id, ", method: ", p);
+                    var reflect, serialize;
+                    if(options && options[p]) {
+                        reflect = options[p].reflect;       // if true, reflect all results from invocation of this method
+                        serialize = options[p].serialize;   // if true, serialize all properties in the reflected result 
+                    }
+
+                    map[p] = (function(id, prop, reflect, serialize) {
+
+                        // suboptimization, generate different closue depending on wether reflection is to be applied or not
+                        if (reflect) {
+                            console.log("generate reflection mapper");
+                            return function() {
+                                var res = rpc.request(remoteid, { method: 'invoke', params: { id: id, property: prop, reflect: true, serialize: serialize, params: toArray(arguments) }});
+                                console.log("got reflected response: ", res);
+                                _reflect(res.id, res.map, { serialize: serialize } );
+                                return res.map;
+                            };
+                        } else {
+                            return function() {
+                                return rpc.request(remoteid, { method: 'invoke', params: { id: id, property: prop, params: toArray(arguments) }});
+                            };
+                        }
+                        
+                    })(id, p, reflect, serialize);
+                } else if( (!options || !options.serialize) && map[p] === 2) { // reflected property
+                    delete map[p];
+                    Object.defineProperty(map, p, { 
+                        get: (function(id, prop) { 
+                            return function() { 
+                                return rpc.request(remoteid, { method: 'get', params: { id: id, property: prop }});
+                            };
+                        })(id, p),
+                        set: (function(id, prop) { 
+                            return function(value) { 
+                                return rpc.request(remoteid, { method: 'set', params: { id: id, property: prop, value: value }});
+                            };
+                        })(id, p)
+                    });
+                }
+            }
+        })(res.id, res.map, options);
+        
+        return res.map;
     }
 
-    return mirror;
 }
 
-
-
-function remoteReflect(obj) {
-    if(reflectedObjects[obj]) {
-        return reflectedObjects[obj];
-    }
-
-    rpc("reflect", obj);
-
-
-}
-
-function runTests(o) {
-    o.foo();
-    o.bar("hello");
-    o.bar(1.2345);
-    console.log("baz gave: " + o.baz(100, "$"));
-}
-
-runTests(local);
-*/
