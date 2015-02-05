@@ -36,7 +36,7 @@ function RemoteRequest(clientid, options) {
                     socket.emit('reply', { txid: request.txid, message: reply });
                 });
             } catch(e) {
-                console.log(clientid + ": request handler failed: " + e);
+                console.log(clientid + ": request handler failed: " + e + ", exception: ", e);
                 for(p in e) {
                     console.log(p + " = " + e[p]);
                 }
@@ -98,6 +98,113 @@ function RemoteRequest(clientid, options) {
     socket.emit('init', { clientid: clientid });
 }
 
+
+function decycle(obj, dst, stack) {
+    var p;
+
+    //dst = dst || dst.constructor();
+    stack = stack || [];
+
+    if(stack.length > 20) {
+        console.log("decycle failed, nested properties: ", stack);
+        throw "decycle, failed, to many nested properties: ";
+    }
+
+    for(p in obj) {
+        if(typeof obj[p] === "object") {
+            if(stack.indexOf(obj[p]) !== -1) {
+                console.log("remove duplicate property: " + p + " at nested level: " + stack.length);
+                delete obj[p];
+            }
+
+            stack.push(obj);
+            console.log("recurr into: " + p);
+            decycle(obj[p], false, stack);
+            stack.pop();
+        }
+    }
+    return obj;
+}
+
+var iter = 0;
+var lastprop = [];
+
+function serializeObject(obj, maxdepth, stack) {
+    var dst, p;
+
+    if(!stack) {
+        console.log("serialize: ", obj, " type:"  + typeof obj);
+        iter = 0;
+    }
+
+    iter++;
+    if(iter > 1000) {
+        console.log("bail out, too large object");
+        console.log("object stack: ", stack);
+        for(var n = 0; n < stack.length; n++) {
+            console.log("typeof stack: " + n  + " = " + typeof stack[n] + " + valueOf: " + stack[n].valueOf());
+        }
+        console.log("property stack: ", lastprop);
+        throw "bail";
+    }
+
+    stack = stack || [];
+
+    if(stack.length >= maxdepth) {
+        return {};
+    }
+
+    if(stack.length > 20) {
+        console.log("decycle failed, nested properties: ", stack);
+        throw "decycle, failed, to many nested properties: ";
+    }
+
+    if(stack.indexOf(obj) !== -1) {
+        console.log("remove duplicate property: " + p + " at nested level: " + stack.length);
+        return {};
+    }
+
+    // avoid recursion into global objects
+    if(obj === window) {
+        console.log("prevent recursion into global object window");
+        return {};
+    }
+
+    try {
+
+    if(typeof obj === "string" || typeof obj === "number" || typeof obj === "boolean" || typeof obj === "undefined") {
+        return obj;
+    } else {
+        if(obj === null) {
+            return null;
+        } else if(Array.isArray(obj)) { // serialize array
+            dst = [];
+            obj.forEach(function(i,v) {
+                stack.push(v);
+                dst[i] = serializeObject(v, maxdepth, stack);
+                stack.pop();
+            });
+        } else { // serialize object
+            dst = {};
+
+            for(p in obj) {
+                if(obj.hasOwnProperty(p)) {
+                    stack.push(obj);
+                    lastprop.push(p);
+                    dst[p] = serializeObject(obj[p], maxdepth, stack);
+                    lastprop.pop();
+                    stack.pop();
+                }
+            }
+        }
+    }
+
+    } catch(e) {
+        console.log("aborted: ", e);
+    }
+    return dst;        
+}
+
 function RemoteReflection(clientid, remoteid, options) {
     var rpc = new RemoteRequest(clientid, options);    
 
@@ -142,7 +249,7 @@ function RemoteReflection(clientid, remoteid, options) {
             if(typeof o[p] === "function") {
                 res.map[p] = 1;
             } else {
-                if(options && options.serialize &&  (typeof o[p] === "string" || typeof o[p] === "number") ) {
+                if(options && options.serialize &&  (typeof o[p] === "string" || typeof o[p] === "number" || typeof o[p] === "boolean")) {
                     res.map[p] = o[p];
                 } else {
                     res.map[p] = 2;
@@ -153,16 +260,52 @@ function RemoteReflection(clientid, remoteid, options) {
         return res;
     }
 
-    function invoke(id, property, _reflect, serialize, params) {
-        var rs, l = local[id];
+    function invoke(_params) {
+
+        var id = _params.id,
+        property = _params.property,
+        _reflect = _params.reflect,
+        serialize = _params.serialize,
+        cbmap = _params.cbmap,
+        params = _params.params,
+        maxdepth = _params.maxdepth || 2;
+        
+        var i, rs, l = local[id];
         if(l.o) {
             console.log("apply: [" + property + "], on object: " + l.o);
+
+            if(cbmap) { // caller passed callbacks
+                console.log("cbmap: ", cbmap);
+                console.log("params: ", params);
+                for(i = 0; i < params.length; i++) {
+                    if(cbmap.map[i]) {
+                        console.log("map callback for arg: " + i);
+                        params[i] = (function(id, prop) {
+                            return function () {
+                                var i, params = [];// = toArray(arguments);
+                                // copy and remove circular referencs
+
+                                for(i = 0; i < arguments.length; i++) {
+                                    params[i] = serializeObject(arguments[i], 2);
+                                }
+                                //params = serializeObject(params);
+                                //params = decycle(params);
+                                console.log("invoke callback: ", params);
+                                return rpc.request(remoteid, { method: 'invoke', params: { id: id, property: prop, params: params }});
+                            }
+                        })(cbmap.id, i);
+                    }
+                }
+            }
 
             res =  l.o[property].apply(l.o, params);
 
             if(_reflect) { 
                 console.log("reflect result: " + res);
                 res = reflect(res, serialize && { serialize: true });
+            } else {
+                console.log("serialize result using maxdepth: " + maxdepth);
+                res = serializeObject(res, maxdepth);
             }
             return res;
         }
@@ -196,7 +339,7 @@ function RemoteReflection(clientid, remoteid, options) {
         console.log("reflect rpc, method: ", method);
 
         if(method === "invoke") {
-            var res = invoke(params.id, params.property, params.reflect, params.serialize, params.params);
+            var res = invoke(params); //params.id, params.property, params.reflect, params.serialize, params.cbmap, params.params);
             cb(res);
         } else if(method === "get") {
             var res = get(params.id, params.property);
@@ -222,35 +365,57 @@ function RemoteReflection(clientid, remoteid, options) {
 
         console.log("got reflect response: ", res);
 
-        (function _reflect(id, map, options) {
+        (function generate_stubs(id, map, options) {
             
             for(p in map) {
                 if(map[p] === 1) { // reflected function
                     //console.log("replace stub with rpc call: to ", res.id, ", method: ", p);
-                    var reflect, serialize;
+                    var reflect_response, serialize, callback, maxdepth;
                     if(options && options[p]) {
-                        reflect = options[p].reflect;       // if true, reflect all results from invocation of this method
+                        reflect_response = options[p].reflect;       // if true, reflect all results from invocation of this method
                         serialize = options[p].serialize;   // if true, serialize all properties in the reflected result 
+                        callback = options[p].callback;     // if true, look for callbacks and reflect those
+                        maxdepth = options[p].maxdepth;     // if set, sets the max recursion level when serializing results
                     }
 
-                    map[p] = (function(id, prop, reflect, serialize) {
+                    map[p] = (function(id, prop, reflect_response, serialize, maxdepth) {
 
-                        // suboptimization, generate different closue depending on wether reflection is to be applied or not
-                        if (reflect) {
+                        // suboptimization, generate different closure depending on wether reflection is to be applied or not
+                        if (reflect_response) {
                             console.log("generate reflection mapper");
                             return function() {
-                                var res = rpc.request(remoteid, { method: 'invoke', params: { id: id, property: prop, reflect: true, serialize: serialize, params: toArray(arguments) }});
+                                var res = rpc.request(remoteid, { method: 'invoke', params: { id: id, property: prop, reflect: true, serialize: serialize, maxdepth: maxdepth, params: toArray(arguments) }});
                                 console.log("got reflected response: ", res);
-                                _reflect(res.id, res.map, { serialize: serialize } );
+                                generate_stubs(res.id, res.map, { serialize: serialize } );
                                 return res.map;
                             };
-                        } else {
+                        } else if (callback) {
+                            console.log("generate closure stub that maps callbacks for: " + prop);
                             return function() {
-                                return rpc.request(remoteid, { method: 'invoke', params: { id: id, property: prop, params: toArray(arguments) }});
+                                var cbmap, i, params = toArray(arguments);
+                                for(i = 0; i < params.length; i++) {
+                                    if(typeof params[i] === "function") {
+                                        cbmap = cbmap || {};
+                                        cbmap[i] = params[i];
+                                        params[i] = i;
+                                    }
+                                }
+
+                                if(cbmap) {
+                                    console.log("reflect callback map:  ", cbmap);
+                                    cbmap = reflect(cbmap);
+                                    console.log("reflected map: ", cbmap);
+                                }
+
+                                return rpc.request(remoteid, { method: 'invoke', params: { id: id, property: prop, cbmap: cbmap, maxdepth: maxdepth, params: params}});
+                            };
+                        } else  { // simple remote invocation
+                            return function() {
+                                return rpc.request(remoteid, { method: 'invoke', params: { id: id, property: prop, maxdepth: maxdepth, params: toArray(arguments) }});
                             };
                         }
                         
-                    })(id, p, reflect, serialize);
+                    })(id, p, reflect_response, serialize, maxdepth);
                 } else if( (!options || !options.serialize) && map[p] === 2) { // reflected property
                     delete map[p];
                     Object.defineProperty(map, p, { 

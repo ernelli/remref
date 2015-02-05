@@ -1,0 +1,28 @@
+<html>
+<head>
+</head>
+
+<body></body>
+<script src="http://localhost:8087/socket.io/socket.io.js"></script>
+<script src="../browser/remref.js"></script>
+<script>
+
+var options = { server: "http://localhost:8087" };
+
+var rpc = new RemoteReflection('client', 'target', options);
+
+console.log("client initialised");
+
+var rcon = rpc.reflect('console');
+console.log("reflected target console: ", rcon);
+console.log("invoke log");
+rcon.log("hello remote logging!");
+console.log("log invoked");
+
+var click = rpc.reflect("click", { addEventListener: { callback: true, maxdepth: 5 }});
+
+
+
+</script>
+
+</html>
