@@ -1,0 +1,65 @@
+<html>
+<head>
+<script src="../browser/remref.js"></script>
+</head>
+
+<body>
+
+
+<script>
+
+var toi = function() {
+};
+
+var player;
+
+function runTest() {
+
+    var options = { server: document.location.origin + ":8087" };
+
+
+    
+    var rpc = new RemoteReflection('client', 'target', options);
+    window.rpc = rpc;
+    rpc.init();
+    console.log("client initialised");
+    //toi.mediaService = rpc.reflect(["toi", "mediaService"], { createPlayerInstance: { reflect: { serialize: true, maxdepth: 3 }, } });
+    toi.mediaService = rpc.reflect(["toi", "mediaService"], { createPlayerInstance: { reflect: { } } });
+    player = toi.mediaService.createPlayerInstance();
+
+//    player.addEventListener(player.ON_POSITION_CHANGED, function(ev) {
+//        console.log("got position changed event: ", ev);
+//    });
+
+    //player.open("igmp://239.16.16.1:5555");
+    player.open("rtsp://hy-vod1-b.iptv.telia.com:5055/3002_BM_12630_h264.vod");
+    player.play(1000);
+
+}
+
+
+
+</script>
+
+
+
+
+
+
+<script>
+console.log("loading socket.io");
+
+(function () {
+    var script = document.createElement("script");
+    script.onload = function () {
+        console.log("socket.io loaded");        
+        runTest();
+    };
+    script.src = document.location.origin + ":8087/socket.io/socket.io.js";
+    document.getElementsByTagName('head')[0].appendChild(script);
+})();
+
+</script>
+
+</body>
+</html>

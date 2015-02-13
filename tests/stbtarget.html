@@ -12,6 +12,10 @@ var options = { server: document.location.origin + ":8087" };
 
 var rpc = new RemoteReflection('target', 'client', options);
 
+rpc.oninit(function() {
+    console.log("stbtarget, got init request from client");
+});
+
 console.log("target initialised");
 
 
