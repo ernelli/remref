@@ -4,18 +4,26 @@
 
 <body>
 <embed id="embed1" type="application/x-motorola-toi" hidden="true"></embed>
+
+<script>console.log("about to load socket.io and remref");</script>
 <script src="http://192.168.126.20:8087/socket.io/socket.io.js"></script>
 <script src="../browser/remref.js"></script>
+
 <script>
+
+
+console.log("start stb rpc endpoint");
 
 var options = { server: document.location.origin + ":8087" };
 
 var rpc = new RemoteReflection('target', 'client', options);
 
-rpc.oninit(function() {
+console.log("setup init function");
+rpc.oninit = function() {
     console.log("stbtarget, got init request from client");
-});
+};
 
+console.log("all done");
 console.log("target initialised");
 
 
