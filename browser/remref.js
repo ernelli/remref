@@ -155,7 +155,9 @@ function bail(state, stack) {
     }
 }
 
-function serializeObject(obj, maxdepth, stack) {
+var terminateObj = {};
+
+function serializeObject(obj, maxdepth, stack, path) {
     var dst, p;
     
     if(!stack) {
@@ -163,6 +165,8 @@ function serializeObject(obj, maxdepth, stack) {
             console.log("=================================================================");
         }
         console.log("start serialize: " + obj + " type:"  + typeof obj);
+        console.log("maxdepth: " + maxdepth);
+        console.log("object: ", obj);
         iter = 0;
     }
 
@@ -178,6 +182,7 @@ function serializeObject(obj, maxdepth, stack) {
     }
 
     stack = stack || [];
+    path = path || [];
 
 
     if(traceserial) {
@@ -185,8 +190,8 @@ function serializeObject(obj, maxdepth, stack) {
     }
 
     if(stack.length >= maxdepth) {
-        console.log("maxdepth reached, terminate");
-        return {};
+        //console.log("maxdepth reached, terminate");
+        return terminateObj;
     }
 
     if(stack.length > 20) {
@@ -194,16 +199,17 @@ function serializeObject(obj, maxdepth, stack) {
         throw "decycle, failed, to many nested properties: ";
     }
 
-/*
+
     if(stack.indexOf(obj) !== -1) {
         console.log("remove duplicate property: " + obj + " at nested level: " + stack.length);
         console.log("stack content");
         for(var st = 0; st < stack.length; st++) {
             console.log("stack level: " + st + ", value: " + stack[st]);
         }
+        console.log("property path: " + path.join("."));
         return {};
     }
-*/
+
     // avoid recursion into global objects
     if(obj === window) {
         console.log("prevent recursion into global object window");
@@ -229,11 +235,13 @@ function serializeObject(obj, maxdepth, stack) {
                 dst = [];
                 obj.forEach(function(v,i) {
                     stack.push(v);
+                    path.push(i);
                     if(traceserial) {
                         console.log("array, serialize item: " + i + ", value: " + v);
                     }
-                    dst[i] = serializeObject(v, maxdepth, stack);
+                    dst[i] = serializeObject(v, maxdepth, stack, path);
                     stack.pop();
+                    path.pop();
                 });
             } else { // serialize object
                 dst = {};
@@ -244,6 +252,7 @@ function serializeObject(obj, maxdepth, stack) {
                             console.log("ignore serialize property: " + p);
                         } else {
                             stack.push(obj);
+                            path.push(p);
                             lastprop.push(p);
 
                             if(p === "changedComponents") {
@@ -251,7 +260,12 @@ function serializeObject(obj, maxdepth, stack) {
                                 traceserial = true;
                             }
 
-                            dst[p] = serializeObject(obj[p], maxdepth, stack);
+                            console.log("serializeObject: " + p);
+                            dst[p] = serializeObject(obj[p], maxdepth, stack, path);
+                            if(dst[p] === terminateObj) {
+                                console.log("terminated serialisation of property: " + p);
+                            }
+
 
                             if(p === "changedComponents") {
                                 console.log("changed components serialized: " + obj[p]);
@@ -259,7 +273,8 @@ function serializeObject(obj, maxdepth, stack) {
                             }
 
                             lastprop.pop();
-                            stack.pop();                        
+                            stack.pop(); 
+                            path.pop();                       
                         }
                     } 
                 }
@@ -278,7 +293,7 @@ function RemoteReflection(clientid, remoteid, options) {
     // id -> object
     var id=1, local = {}, clientOptions;
 
-    function reflect(item, options) {
+    function reflect(item, serialize) {
         var i, o, p, res;
 
         if(typeof item == "string") {
@@ -296,19 +311,11 @@ function RemoteReflection(clientid, remoteid, options) {
             console.log("unhandled item type: " + typeof item);
         }
 
-        console.log("reflect item: " + item + ", is object: " +  o);
-        if(options) {
-            console.log("options: " + options);
-            for(var P in options) {
-                console.log("prop: " + P + " = " + options[P]);
-            }
-        } else {
-            console.log("options not specified");
-        }
+        console.log("reflect item: " + item + ", is object: " +  o + ", serialize: " + serialize);
 
-        local[id] = { o: o }; //, options: options };
+        local[id] = o; //, options: options };
 
-        res = { id: id, map: {} };
+        res = { id: id, obj: {}, map: {} };
 
         id++;
 
@@ -316,8 +323,8 @@ function RemoteReflection(clientid, remoteid, options) {
             if(typeof o[p] === "function") {
                 res.map[p] = 1;
             } else {
-                if(options && options.serialize &&  (typeof o[p] === "string" || typeof o[p] === "number" || typeof o[p] === "boolean")) {
-                    res.map[p] = o[p];
+                if(serialize &&  (typeof o[p] === "string" || typeof o[p] === "number" || typeof o[p] === "boolean")) {
+                    res.obj[p] = o[p];
                 } else {
                     res.map[p] = 2;
                 }
@@ -328,17 +335,17 @@ function RemoteReflection(clientid, remoteid, options) {
     }
 
     function invoke(_params) {
-        var res, id = _params.id,
+        var result, response = {}, res, id = _params.id,
         property = _params.property,
         _reflect = _params.reflect,
         serialize = _params.serialize,
         cbmap = _params.cbmap,
         params = _params.params,
-        maxdepth = _params.maxdepth || 5;
+        maxdepth = _params.maxdepth || 3;
         
-        var i, rs, l = local[id];
-        if(l && l.o) {
-            console.log("invoke: [" + property + "], on object id: " + id + ", object: " + l.o);
+        var i, rs, o = local[id];
+        if(o) {
+            console.log("invoke: [" + property + "], on object id: " + id + ", object: " + o);
 
             if(cbmap) { // caller passed callbacks
                 console.log("remref, invoke, caller passed callbacks");
@@ -352,7 +359,7 @@ function RemoteReflection(clientid, remoteid, options) {
                                 // copy and remove circular referencs
 
                                 for(i = 0; i < arguments.length; i++) {
-                                    params[i] = serializeObject(arguments[i], 5);
+                                    params[i] = serializeObject(arguments[i], 2);
                                 }
                                 //params = serializeObject(params);
                                 //params = decycle(params);
@@ -368,52 +375,34 @@ function RemoteReflection(clientid, remoteid, options) {
 
             try {
                 console.log("invoke: " + property + ", params: ", params);
-                res =  l.o[property].apply(l.o, params);
+                result =  o[property].apply(o, params);
             } catch(e) {
                 console.log("invoke, " + property + ", failed: " + e);
-                res = { _exception: e };
+                response.exception = e;
             }
 
             if(_reflect) { 
-                console.log("reflect result: " + res);
-                res = reflect(res, serialize && { serialize: true });
+                console.log("reflect result: " + result);
+                var reflection = reflect(result, serialize);
+                response.result = reflection.obj;
+                response.reflect = { id: reflection.id, map: reflection.map };
             } else {
                 console.log("serialize result using maxdepth: " + maxdepth);
-                var org = res;
                 
                 if(property === "getStreamInfo") {
                     traceserial = true;
                 }
 
-                res = serializeObject(res, maxdepth);
+                response.result = serializeObject(result, maxdepth);
 
                 traceserial = false;
-                
-                var size =  (res ? JSON.stringify(res).length : 0);
-                console.log("result serialized, size: " + size );
-                if(size > 100000) {
-                    console.log("org is: " + org);
-
-                    console.log("invalid large object serialized");
-                    console.log("original object size: " + JSON.stringify(org));
-
-                    var pace = org.paces[0];
-
-                    console.log("dump org pace: " + typeof pace);
-                    console.log("dump res pace: " + typeof res.paces[0]);
-
-
-                    for(p in pace) {
-                        console.log("prop: " + p + " = " + pace[p]);
-                    }
-                }
             }
-            return res;
+            return response;
         }
     }
 
     function get(id, property) {
-        var o = local[id].o;
+        var o = local[id];
         if(o) {
             console.log("get: " + property + ", from object: " +  o);
             return o[property];
@@ -421,7 +410,7 @@ function RemoteReflection(clientid, remoteid, options) {
     }
 
     function set(id, property, value) {
-        var o = local[id].o;
+        var o = local[id];
         if(o) {
             console.log("set: " + property + ", to object: " +  o);
             o[property] = value;
@@ -508,7 +497,7 @@ function RemoteReflection(clientid, remoteid, options) {
         console.log("reflect item: " + item + ", options: ", options);
         console.log("got reflect response: ", res);
 
-        (function generate_stubs(id, map, options) {
+        (function generate_stubs(obj, id, map, options) {
             
             for(p in map) {
                 if(map[p] === 1) { // reflected function
@@ -522,7 +511,7 @@ function RemoteReflection(clientid, remoteid, options) {
                         maxdepth = options[p].maxdepth;     // if set, sets the max recursion level when serializing results
                     }
 
-                    map[p] = (function(id, prop, reflect_options, serialize, maxdepth) {
+                    obj[p] = (function(id, prop, reflect_options, serialize, maxdepth) {
 
                         // suboptimization, generate different closure depending on wether reflection is to be applied or not
                         if (reflect_options) {
@@ -530,25 +519,29 @@ function RemoteReflection(clientid, remoteid, options) {
                             return function() {
                                 var res = rpc.request(remoteid, { method: 'invoke', params: { id: id, property: prop, reflect: true, serialize: reflect_options.serialize, maxdepth: reflect_options.maxdepth, params: toArray(arguments) }});
                                 console.log("got reflected response: ", res);
-                                generate_stubs(res.id, res.map, { serialize: serialize } );
-                                return res.map;
+                                if(res.exception) {
+                                    throw res.exception;
+                                }
+                                generate_stubs(res.result, res.reflect.id, res.reflect.map, { serialize: serialize } );
+                                return res.result;
                             };
-                        } else if (true) {
+                        } else  {
                             console.log("generate closure stub that maps callbacks for: " + prop);
                             return function() {
-                                var params = toArray(arguments);
-                                return rpc.request(remoteid, { method: 'invoke', params: { id: id, property: prop, cbmap: mapcb(params), serialize: serialize, maxdepth: maxdepth, params: params}});
+                                var res, params = toArray(arguments);
+                                
+                                res = rpc.request(remoteid, { method: 'invoke', params: { id: id, property: prop, cbmap: mapcb(params), serialize: serialize, maxdepth: maxdepth, params: params}});
+                                if(res.exception) {
+                                    throw res.exception;
+                                } else {
+                                    return res.result;
+                                }
                             };
-                        } else  { // simple remote invocation
-                            return function() {
-                                return rpc.request(remoteid, { method: 'invoke', params: { id: id, property: prop, maxdepth: maxdepth, params: toArray(arguments) }});
-                            };
-                        }
+                        } 
                         
                     })(id, p, reflect_options, serialize, maxdepth);
                 } else if( (!options || !options.serialize) && map[p] === 2) { // reflected property
-                    delete map[p];
-                    Object.defineProperty(map, p, { 
+                    Object.defineProperty(obj, p, { 
                         get: (function(id, prop) { 
                             return function() { 
                                 return rpc.request(remoteid, { method: 'get', params: { id: id, property: prop }});
@@ -562,9 +555,9 @@ function RemoteReflection(clientid, remoteid, options) {
                     });
                 }
             }
-        })(res.id, res.map, options);
+        })(res.obj, res.id, res.map, options);
         
-        return res.map;
+        return res.obj;
     };
 
     this.init = function(options, cb) {

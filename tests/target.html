@@ -19,6 +19,31 @@ console.log("target initialised");
 
 window.click = document.getElementById("click");
 
+var a = {
+    b: {
+        foo: 99
+    }
+};
+
+
+a.b.back = a;
+
+var circular = {
+    loop: a
+};
+
+var funcs = {
+    badfunc: function() {
+        console.log("badfunc invoked");
+        throw { foo: "failed!", code: 99 };
+    },
+    circular: function() {
+        return a;
+    }
+};
+
+
+
 </script>
 
 </html>
